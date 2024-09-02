@@ -35,6 +35,10 @@ def getOCR(im, coors):
 
 class DetectionPredictor(BasePredictor):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.detected_vehicles = {}  # Dictionary to track detected vehicles
+
     def get_annotator(self, img):
         return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
 
@@ -92,10 +96,12 @@ class DetectionPredictor(BasePredictor):
         self.all_outputs.append(det)
         if len(det) == 0:
             return log_string
+
         for c in det[:, 5].unique():
             n = (det[:, 5] == c).sum()  # detections per class
             log_string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
-        # write
+
+        # Write results
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         for *xyxy, conf, cls in reversed(det):
             if self.args.save_txt:  # Write to file
@@ -110,13 +116,16 @@ class DetectionPredictor(BasePredictor):
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 ocr = getOCR(im0, xyxy)
                 if ocr != "":
-                    label = ocr
-                    # Log the entry and exit times
-                    if ocr in vehicle_data['License Plate'].values:
-                        self.log_exit(ocr)
-                    else:
-                        self.log_entry(ocr)
+                    if ocr not in self.detected_vehicles or self.detected_vehicles[ocr] != frame:
+                        # Log the entry and exit times
+                        if ocr in vehicle_data['License Plate'].values:
+                            self.log_exit(ocr)
+                        else:
+                            self.log_entry(ocr)
+                        self.detected_vehicles[ocr] = frame
+                        label = ocr
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
+
             if self.args.save_crop:
                 imc = im0.copy()
                 save_one_box(xyxy,
