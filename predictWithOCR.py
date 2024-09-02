@@ -47,7 +47,7 @@ def apply_nms_to_ocr(results, iou_threshold=0.3):
     boxes = torch.tensor(boxes)
     scores = torch.tensor(scores)
 
-    indices = ops.non_max_suppression(boxes.unsqueeze(0), scores.unsqueeze(0), iou_threshold=iou_threshold)[0]
+    indices = ops.nms(boxes, scores, iou_threshold)
     nms_results = [results[i] for i in indices]
     return nms_results
 
