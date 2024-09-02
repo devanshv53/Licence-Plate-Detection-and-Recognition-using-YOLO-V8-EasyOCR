@@ -8,6 +8,7 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
+from torchvision.ops import nms  # Import the nms function from torchvision
 
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
@@ -47,7 +48,8 @@ def apply_nms_to_ocr(results, iou_threshold=0.3):
     boxes = torch.tensor(boxes)
     scores = torch.tensor(scores)
 
-    indices = ops.nms(boxes, scores, iou_threshold)
+    # Use the torchvision nms function
+    indices = nms(boxes, scores, iou_threshold)
     nms_results = [results[i] for i in indices]
     return nms_results
 
@@ -78,7 +80,6 @@ class DetectionPredictor(BasePredictor):
     def log_entry(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Log only if the license plate is not already recorded
         if plate not in detected_vehicles:
             detected_vehicles.add(plate)
             new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
