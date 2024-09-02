@@ -145,9 +145,10 @@ class DetectionPredictor(BasePredictor):
 def predict(cfg):
     cfg.model = cfg.model or "yolov8n.pt"
     cfg.imgsz = check_imgsz(cfg.imgsz, min_dim=2)  # check image size
-   cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
-    predictor = detectionpredictor(cfg)
+    cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
+    predictor = DetectionPredictor(cfg)
     predictor()
+
 
 
 if __name__ == "__main__":
