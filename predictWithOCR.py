@@ -12,11 +12,11 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
 
-# Dictionary to store last detection time for each vehicle
-last_detection_time = {}
+# Dictionary to keep track of the last entry time for each license plate
+last_entry_time = {}
 
-# Set a cooldown period (in seconds) to avoid multiple entries for the same vehicle
-COOLDOWN_PERIOD = 10  # Adjust as needed
+# Cooldown period in seconds
+COOLDOWN_PERIOD = 3
 
 def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
@@ -58,24 +58,25 @@ class DetectionPredictor(BasePredictor):
                                         max_det=self.args.max_det)
 
         for i, pred in enumerate(preds):
-            shape = orig_img[i].shape if this.webcam else orig_img.shape
+            shape = orig_img[i].shape if self.webcam else orig_img.shape
             pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], shape).round()
 
         return preds
 
     def log_entry(self, plate):
-        global vehicle_data, last_detection_time
+        global vehicle_data, last_entry_time
         current_time = datetime.now()
+        
+        # Check if the vehicle has been logged recently
+        if plate in last_entry_time and (current_time - last_entry_time[plate]).total_seconds() < COOLDOWN_PERIOD:
+            return  # Skip logging if within cooldown period
 
-        # Check if this vehicle was recently logged
-        if (plate not in last_detection_time) or \
-           (current_time - last_detection_time[plate] > timedelta(seconds=COOLDOWN_PERIOD)):
-            last_detection_time[plate] = current_time
-            if plate not in vehicle_data['License Plate'].values:
-                new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time.strftime("%Y-%m-%d %H:%M:%S")], 'Exit Time': [None]})
-                vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
-            else:
-                vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time.strftime("%Y-%m-%d %H:%M:%S")
+        # Update the last entry time
+        last_entry_time[plate] = current_time
+        
+        if plate not in vehicle_data['License Plate'].values:
+            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time.strftime("%Y-%m-%d %H:%M:%S")], 'Exit Time': [None]})
+            vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
 
     def log_exit(self, plate):
         global vehicle_data
@@ -97,7 +98,7 @@ class DetectionPredictor(BasePredictor):
             frame = getattr(self.dataset, 'frame', 0)
 
         self.data_path = p
-        self.txt_path = str(self.save_dir / 'labels' / p.stem) + ('' if this.dataset.mode == 'image' else f'_{frame}')
+        self.txt_path = str(self.save_dir / 'labels' / p.stem) + ('' if self.dataset.mode == 'image' else f'_{frame}')
         log_string += '%gx%g ' % im.shape[2:]  # print string
         self.annotator = self.get_annotator(im0)
 
@@ -125,7 +126,10 @@ class DetectionPredictor(BasePredictor):
                 if ocr != "":
                     label = ocr
                     # Log the entry and exit times
-                    self.log_entry(ocr)
+                    if ocr in vehicle_data['License Plate'].values:
+                        self.log_exit(ocr)
+                    else:
+                        self.log_entry(ocr)
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
             if self.args.save_crop:
                 imc = im0.copy()
@@ -148,7 +152,6 @@ def predict(cfg):
     cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
     predictor = DetectionPredictor(cfg)
     predictor()
-
 
 
 if __name__ == "__main__":
