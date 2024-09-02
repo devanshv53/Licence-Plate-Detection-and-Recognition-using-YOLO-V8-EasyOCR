@@ -3,7 +3,7 @@ import torch
 import easyocr
 import cv2
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
@@ -12,11 +12,8 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
 
-# Dictionary to keep track of the last entry time for each license plate
-last_entry_time = {}
-
-# Cooldown period in seconds
-COOLDOWN_PERIOD = 3
+# Track last detection times
+last_detection_time = {}
 
 def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
@@ -64,19 +61,12 @@ class DetectionPredictor(BasePredictor):
         return preds
 
     def log_entry(self, plate):
-        global vehicle_data, last_entry_time
-        current_time = datetime.now()
-        
-        # Check if the vehicle has been logged recently
-        if plate in last_entry_time and (current_time - last_entry_time[plate]).total_seconds() < COOLDOWN_PERIOD:
-            return  # Skip logging if within cooldown period
-
-        # Update the last entry time
-        last_entry_time[plate] = current_time
-        
+        global vehicle_data
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if plate not in vehicle_data['License Plate'].values:
-            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time.strftime("%Y-%m-%d %H:%M:%S")], 'Exit Time': [None]})
+            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
             vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+            last_detection_time[plate] = datetime.now()
 
     def log_exit(self, plate):
         global vehicle_data
@@ -124,7 +114,12 @@ class DetectionPredictor(BasePredictor):
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 ocr = getOCR(im0, xyxy)
                 if ocr != "":
-                    label = ocr
+                    current_time = datetime.now()
+                    # Implement cooldown check (e.g., 10 seconds)
+                    if ocr in last_detection_time:
+                        time_diff = (current_time - last_detection_time[ocr]).total_seconds()
+                        if time_diff < 10:  # 10 seconds cooldown
+                            continue
                     # Log the entry and exit times
                     if ocr in vehicle_data['License Plate'].values:
                         self.log_exit(ocr)
