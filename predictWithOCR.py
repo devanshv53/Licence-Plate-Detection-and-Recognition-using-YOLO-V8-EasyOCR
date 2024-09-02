@@ -34,6 +34,23 @@ def getOCR(im, coors):
         print(f"Error applying OCR: {e}")
         return ""
 
+def apply_nms_to_ocr(results, iou_threshold=0.3):
+    if len(results) == 0:
+        return []
+
+    boxes = []
+    scores = []
+    for result in results:
+        boxes.append(result[0])
+        scores.append(result[2])
+
+    boxes = torch.tensor(boxes)
+    scores = torch.tensor(scores)
+
+    indices = ops.non_max_suppression(boxes.unsqueeze(0), scores.unsqueeze(0), iou_threshold=iou_threshold)[0]
+    nms_results = [results[i] for i in indices]
+    return nms_results
+
 class DetectionPredictor(BasePredictor):
 
     def get_annotator(self, img):
@@ -61,17 +78,18 @@ class DetectionPredictor(BasePredictor):
     def log_entry(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Check if the vehicle already has an active entry without an exit time
-        if not vehicle_data[(vehicle_data['License Plate'] == plate) & (vehicle_data['Exit Time'].isna())].empty:
-            return  # Skip logging if an active entry exists
-        new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
-        vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+        # Log only if the license plate is not already recorded
+        if plate not in detected_vehicles:
+            detected_vehicles.add(plate)
+            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
+            vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
 
     def log_exit(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        # Update the exit time for the vehicle's active entry
-        vehicle_data.loc[(vehicle_data['License Plate'] == plate) & (vehicle_data['Exit Time'].isna()), 'Exit Time'] = current_time
+        if plate in detected_vehicles:
+            vehicle_data.loc[(vehicle_data['License Plate'] == plate) & (vehicle_data['Exit Time'].isna()), 'Exit Time'] = current_time
+            detected_vehicles.remove(plate)
 
     def write_results(self, idx, preds, batch):
         global detected_vehicles
@@ -115,16 +133,18 @@ class DetectionPredictor(BasePredictor):
                 label = None if self.args.hide_labels else (
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 ocr = getOCR(im0, xyxy)
-                if ocr != "" and ocr not in detected_vehicles:
-                    # Log the entry and exit times
-                    if ocr in vehicle_data['License Plate'].values:
-                        self.log_exit(ocr)
-                        detected_vehicles.remove(ocr)  # Clear plate after exit
-                    else:
-                        self.log_entry(ocr)
-                        detected_vehicles.add(ocr)  # Add plate on entry
-                    label = ocr
-                self.annotator.box_label(xyxy, label, color=colors(c, True))
+                if ocr != "":
+                    # Apply NMS on the OCR results
+                    nms_results = apply_nms_to_ocr([(xyxy, label, conf)])
+                    if nms_results:
+                        ocr = nms_results[0][1]  # Get the best result after NMS
+                        label = ocr
+                        # Log the entry and exit times
+                        if ocr in detected_vehicles:
+                            self.log_exit(ocr)
+                        else:
+                            self.log_entry(ocr)
+                    self.annotator.box_label(xyxy, label, color=colors(c, True))
 
             if self.args.save_crop:
                 imc = im0.copy()
