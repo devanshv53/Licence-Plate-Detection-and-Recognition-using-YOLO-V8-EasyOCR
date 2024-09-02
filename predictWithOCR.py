@@ -12,9 +12,6 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
 
-# Track last detection times
-last_detection_time = {}
-
 def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
     im = im[y:h, x:w]
@@ -66,7 +63,6 @@ class DetectionPredictor(BasePredictor):
         if plate not in vehicle_data['License Plate'].values:
             new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
             vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
-            last_detection_time[plate] = datetime.now()
 
     def log_exit(self, plate):
         global vehicle_data
@@ -114,12 +110,7 @@ class DetectionPredictor(BasePredictor):
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 ocr = getOCR(im0, xyxy)
                 if ocr != "":
-                    current_time = datetime.now()
-                    # Implement cooldown check (e.g., 10 seconds)
-                    if ocr in last_detection_time:
-                        time_diff = (current_time - last_detection_time[ocr]).total_seconds()
-                        if time_diff < 10:  # 10 seconds cooldown
-                            continue
+                    label = ocr
                     # Log the entry and exit times
                     if ocr in vehicle_data['License Plate'].values:
                         self.log_exit(ocr)
