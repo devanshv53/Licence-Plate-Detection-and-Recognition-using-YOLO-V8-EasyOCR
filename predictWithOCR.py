@@ -18,16 +18,20 @@ def getOCR(im, coors):
     conf = 0.2
 
     gray = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
-    results = reader.readtext(gray)
-    ocr = ""
+    try:
+        results = reader.readtext(gray)
+        ocr = ""
 
-    for result in results:
-        if len(results) == 1:
-            ocr = result[1]
-        if len(results) > 1 and len(results[1]) > 6 and results[2] > conf:
-            ocr = result[1]
+        for result in results:
+            if len(results) == 1:
+                ocr = result[1]
+            elif len(results) > 1 and len(result[1]) > 6 and result[2] > conf:
+                ocr = result[1]
 
-    return str(ocr)
+        return str(ocr)
+    except Exception as e:
+        print(f"Error applying OCR: {e}")
+        return ""
 
 class DetectionPredictor(BasePredictor):
 
@@ -53,17 +57,18 @@ class DetectionPredictor(BasePredictor):
 
         return preds
 
-def log_entry(self, plate):
-    global vehicle_data
-    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if plate not in vehicle_data['License Plate'].values:
-        new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
-        vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+    def log_entry(self, plate):
+        global vehicle_data
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if plate not in vehicle_data['License Plate'].values:
+            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
+            vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
 
     def log_exit(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
+        if plate in vehicle_data['License Plate'].values:
+            vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
 
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
