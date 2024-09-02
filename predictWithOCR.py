@@ -61,15 +61,17 @@ class DetectionPredictor(BasePredictor):
     def log_entry(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate not in vehicle_data['License Plate'].values:
-            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
-            vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+        # Check if the vehicle already has an active entry without an exit time
+        if not vehicle_data[(vehicle_data['License Plate'] == plate) & (vehicle_data['Exit Time'].isna())].empty:
+            return  # Skip logging if an active entry exists
+        new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
+        vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
 
     def log_exit(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate in vehicle_data['License Plate'].values:
-            vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
+        # Update the exit time for the vehicle's active entry
+        vehicle_data.loc[(vehicle_data['License Plate'] == plate) & (vehicle_data['Exit Time'].isna()), 'Exit Time'] = current_time
 
     def write_results(self, idx, preds, batch):
         global detected_vehicles
@@ -117,9 +119,10 @@ class DetectionPredictor(BasePredictor):
                     # Log the entry and exit times
                     if ocr in vehicle_data['License Plate'].values:
                         self.log_exit(ocr)
+                        detected_vehicles.remove(ocr)  # Clear plate after exit
                     else:
                         self.log_entry(ocr)
-                    detected_vehicles.add(ocr)
+                        detected_vehicles.add(ocr)  # Add plate on entry
                     label = ocr
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
 
