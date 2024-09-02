@@ -60,7 +60,6 @@ def log_entry(self, plate):
         new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
         vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
 
-
     def log_exit(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
