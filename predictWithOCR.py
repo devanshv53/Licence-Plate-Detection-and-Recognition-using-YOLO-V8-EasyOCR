@@ -8,11 +8,9 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
-from torchvision.ops import nms  # Import the nms function from torchvision
 
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
-detected_vehicles = set()  # Set to track detected license plates
 
 def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
@@ -34,24 +32,6 @@ def getOCR(im, coors):
     except Exception as e:
         print(f"Error applying OCR: {e}")
         return ""
-
-def apply_nms_to_ocr(results, iou_threshold=0.3):
-    if len(results) == 0:
-        return []
-
-    boxes = []
-    scores = []
-    for result in results:
-        boxes.append(result[0])
-        scores.append(result[2])
-
-    boxes = torch.tensor(boxes)
-    scores = torch.tensor(scores)
-
-    # Use the torchvision nms function
-    indices = nms(boxes, scores, iou_threshold)
-    nms_results = [results[i] for i in indices]
-    return nms_results
 
 class DetectionPredictor(BasePredictor):
 
@@ -80,20 +60,17 @@ class DetectionPredictor(BasePredictor):
     def log_entry(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate not in detected_vehicles:
-            detected_vehicles.add(plate)
+        if plate not in vehicle_data['License Plate'].values:
             new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
             vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
 
     def log_exit(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate in detected_vehicles:
-            vehicle_data.loc[(vehicle_data['License Plate'] == plate) & (vehicle_data['Exit Time'].isna()), 'Exit Time'] = current_time
-            detected_vehicles.remove(plate)
+        if plate in vehicle_data['License Plate'].values:
+            vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
 
     def write_results(self, idx, preds, batch):
-        global detected_vehicles
         p, im, im0 = batch
         log_string = ""
         if len(im.shape) == 3:
@@ -115,12 +92,10 @@ class DetectionPredictor(BasePredictor):
         self.all_outputs.append(det)
         if len(det) == 0:
             return log_string
-
         for c in det[:, 5].unique():
             n = (det[:, 5] == c).sum()  # detections per class
             log_string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
-
-        # Write results
+        # write
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         for *xyxy, conf, cls in reversed(det):
             if self.args.save_txt:  # Write to file
@@ -135,18 +110,13 @@ class DetectionPredictor(BasePredictor):
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 ocr = getOCR(im0, xyxy)
                 if ocr != "":
-                    # Apply NMS on the OCR results
-                    nms_results = apply_nms_to_ocr([(xyxy, label, conf)])
-                    if nms_results:
-                        ocr = nms_results[0][1]  # Get the best result after NMS
-                        label = ocr
-                        # Log the entry and exit times
-                        if ocr in detected_vehicles:
-                            self.log_exit(ocr)
-                        else:
-                            self.log_entry(ocr)
-                    self.annotator.box_label(xyxy, label, color=colors(c, True))
-
+                    label = ocr
+                    # Log the entry and exit times
+                    if ocr in vehicle_data['License Plate'].values:
+                        self.log_exit(ocr)
+                    else:
+                        self.log_entry(ocr)
+                self.annotator.box_label(xyxy, label, color=colors(c, True))
             if self.args.save_crop:
                 imc = im0.copy()
                 save_one_box(xyxy,
