@@ -1,29 +1,32 @@
-# Ultralytics YOLO 🚀, GPL-3.0 license
-
 import hydra
 import torch
 import easyocr
 import cv2
+import pandas as pd
+from datetime import datetime
 from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
+# Initialize DataFrame
+vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
+
 def getOCR(im, coors):
-    x,y,w, h = int(coors[0]), int(coors[1]), int(coors[2]),int(coors[3])
-    im = im[y:h,x:w]
+    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
+    im = im[y:h, x:w]
     conf = 0.2
 
-    gray = cv2.cvtColor(im , cv2.COLOR_RGB2GRAY)
+    gray = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
     results = reader.readtext(gray)
     ocr = ""
 
     for result in results:
         if len(results) == 1:
             ocr = result[1]
-        if len(results) >1 and len(results[1])>6 and results[2]> conf:
+        if len(results) > 1 and len(results[1]) > 6 and results[2] > conf:
             ocr = result[1]
-    
+
     return str(ocr)
 
 class DetectionPredictor(BasePredictor):
@@ -50,6 +53,17 @@ class DetectionPredictor(BasePredictor):
 
         return preds
 
+    def log_entry(self, plate):
+        global vehicle_data
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if plate not in vehicle_data['License Plate'].values:
+            vehicle_data = vehicle_data.append({'License Plate': plate, 'Entry Time': current_time, 'Exit Time': None}, ignore_index=True)
+
+    def log_exit(self, plate):
+        global vehicle_data
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
+
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
         log_string = ""
@@ -64,7 +78,6 @@ class DetectionPredictor(BasePredictor):
             frame = getattr(self.dataset, 'frame', 0)
 
         self.data_path = p
-        # save_path = str(self.save_dir / p.name)  # im.jpg
         self.txt_path = str(self.save_dir / 'labels' / p.stem) + ('' if self.dataset.mode == 'image' else f'_{frame}')
         log_string += '%gx%g ' % im.shape[2:]  # print string
         self.annotator = self.get_annotator(im0)
@@ -89,9 +102,14 @@ class DetectionPredictor(BasePredictor):
                 c = int(cls)  # integer class
                 label = None if self.args.hide_labels else (
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
-                ocr = getOCR(im0,xyxy)
+                ocr = getOCR(im0, xyxy)
                 if ocr != "":
                     label = ocr
+                    # Log the entry and exit times
+                    if ocr in vehicle_data['License Plate'].values:
+                        self.log_exit(ocr)
+                    else:
+                        self.log_entry(ocr)
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
             if self.args.save_crop:
                 imc = im0.copy()
@@ -99,6 +117,10 @@ class DetectionPredictor(BasePredictor):
                              imc,
                              file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
                              BGR=True)
+
+        # Save the DataFrame to a CSV file after processing all frames
+        vehicle_data.to_csv('vehicle_entry_exit_log.csv', index=False)
+        print("Vehicle data saved to 'vehicle_entry_exit_log.csv'")
 
         return log_string
 
