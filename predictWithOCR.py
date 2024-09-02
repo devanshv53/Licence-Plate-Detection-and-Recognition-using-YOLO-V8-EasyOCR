@@ -11,6 +11,7 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
+detected_vehicles = set()  # Set to track detected license plates
 
 def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
@@ -34,10 +35,6 @@ def getOCR(im, coors):
         return ""
 
 class DetectionPredictor(BasePredictor):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.detected_vehicles = {}  # Dictionary to track detected vehicles
 
     def get_annotator(self, img):
         return Annotator(img, line_width=self.args.line_thickness, example=str(self.model.names))
@@ -75,6 +72,7 @@ class DetectionPredictor(BasePredictor):
             vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
 
     def write_results(self, idx, preds, batch):
+        global detected_vehicles
         p, im, im0 = batch
         log_string = ""
         if len(im.shape) == 3:
@@ -115,15 +113,14 @@ class DetectionPredictor(BasePredictor):
                 label = None if self.args.hide_labels else (
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 ocr = getOCR(im0, xyxy)
-                if ocr != "":
-                    if ocr not in self.detected_vehicles or self.detected_vehicles[ocr] != frame:
-                        # Log the entry and exit times
-                        if ocr in vehicle_data['License Plate'].values:
-                            self.log_exit(ocr)
-                        else:
-                            self.log_entry(ocr)
-                        self.detected_vehicles[ocr] = frame
-                        label = ocr
+                if ocr != "" and ocr not in detected_vehicles:
+                    # Log the entry and exit times
+                    if ocr in vehicle_data['License Plate'].values:
+                        self.log_exit(ocr)
+                    else:
+                        self.log_entry(ocr)
+                    detected_vehicles.add(ocr)
+                    label = ocr
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
 
             if self.args.save_crop:
