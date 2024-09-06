@@ -8,24 +8,60 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
+import re  # For pattern matching
 
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
+unique_plates = set()  # Set to track unique license plates
 
-# Dictionary to keep track of the last detected time for each license plate
-last_detected = {}
+def correct_ocr_mistakes(plate):
+    """Fix common OCR misreadings in license plates."""
+    corrections = {
+        'O': '0',  # Replace 'O' with '0'
+        'Q': '0',  # Replace 'Q' with '0'
+        'I': '1',  # Replace 'I' with '1'
+        'S': '5',  # Replace 'S' with '5'
+        'Z': '2',  # Replace 'Z' with '2'
+        'B': '8',  # Replace 'B' with '8'
+        'l': '1',  # Replace lowercase 'l' with '1'
+        '|': '1'   # Replace '|' with '1'
+    }
+    
+    for wrong_char, correct_char in corrections.items():
+        plate = plate.replace(wrong_char, correct_char)
+    return plate
 
-# Cooldown period in seconds
-COOLDOWN_PERIOD = 10
+def validate_plate_format(plate):
+    """Validate the format of the detected license plate based on common patterns."""
+    # General format for Indian license plates: 2 letters, 1-2 digits, 1-2 letters, 1-4 digits
+    pattern = r"^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{1,4}$"
+    return bool(re.match(pattern, plate))
+
+def preprocess_image_for_ocr(im, coors):
+    """Preprocess the image to enhance OCR accuracy."""
+    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
+    cropped_im = im[y:h, x:w]
+
+    # Convert to grayscale
+    gray = cv2.cvtColor(cropped_im, cv2.COLOR_RGB2GRAY)
+    
+    # Apply Gaussian Blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Apply thresholding for better contrast
+    _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+
+    # Resize to improve OCR readability
+    resized = cv2.resize(thresh, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
+
+    return resized
 
 def getOCR(im, coors):
-    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
-    im = im[y:h, x:w]
-    conf = 0.2
-
-    gray = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
+    """Extract text (license plate) from image using OCR."""
     try:
-        results = reader.readtext(gray)
+        processed_im = preprocess_image_for_ocr(im, coors)
+        results = reader.readtext(processed_im)
+        conf = 0.2
         ocr = ""
 
         for result in results:
@@ -34,15 +70,17 @@ def getOCR(im, coors):
             elif len(results) > 1 and len(result[1]) > 6 and result[2] > conf:
                 ocr = result[1]
 
-        return str(ocr)
+        # Normalize, correct mistakes, and validate the detected plate
+        normalized_plate = correct_ocr_mistakes(ocr)
+        corrected_plate = correct_ocr_mistakes(normalized_plate)
+
+        if validate_plate_format(corrected_plate):
+            return corrected_plate
+        else:
+            return ""
     except Exception as e:
         print(f"Error applying OCR: {e}")
         return ""
-
-def is_significant_difference(old_plate, new_plate):
-    # Add logic to compare old_plate and new_plate, e.g., using Levenshtein distance
-    # Return True if they are considered different
-    return old_plate != new_plate
 
 class DetectionPredictor(BasePredictor):
 
@@ -69,9 +107,10 @@ class DetectionPredictor(BasePredictor):
         return preds
 
     def log_entry(self, plate):
-        global vehicle_data
+        global vehicle_data, unique_plates
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate not in vehicle_data['License Plate'].values:
+        if plate not in unique_plates:  # Avoid duplicates
+            unique_plates.add(plate)  # Add to set of unique plates
             new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
             vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
 
@@ -106,7 +145,7 @@ class DetectionPredictor(BasePredictor):
         for c in det[:, 5].unique():
             n = (det[:, 5] == c).sum()  # detections per class
             log_string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
-        # write
+
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         for *xyxy, conf, cls in reversed(det):
             if self.args.save_txt:  # Write to file
@@ -121,19 +160,12 @@ class DetectionPredictor(BasePredictor):
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
                 ocr = getOCR(im0, xyxy)
                 if ocr != "":
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    if ocr in last_detected:
-                        time_diff = (datetime.now() - last_detected[ocr]).total_seconds()
-                        if time_diff > COOLDOWN_PERIOD:
-                            if is_significant_difference(last_detected[ocr], ocr):
-                                self.log_entry(ocr)
-                                last_detected[ocr] = datetime.now()
-                        else:
-                            # Log exit time if vehicle has left
-                            self.log_exit(ocr)
+                    label = ocr
+                    # Log the entry and exit times
+                    if ocr in unique_plates:
+                        self.log_exit(ocr)
                     else:
                         self.log_entry(ocr)
-                        last_detected[ocr] = datetime.now()
                 self.annotator.box_label(xyxy, label, color=colors(c, True))
             if self.args.save_crop:
                 imc = im0.copy()
@@ -159,5 +191,4 @@ def predict(cfg):
 
 
 if __name__ == "__main__":
-    reader = easyocr.Reader(['en'])
-    predict()
+    reader = easyocr.Reader(['en
