@@ -23,8 +23,8 @@ reader = easyocr.Reader(['en'])
 def preprocess_image_for_ocr(im):
     """Preprocess image for better OCR results."""
     im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-    im = cv2.medianBlur(im, 3)  # Reduce noise
-    _, im = cv2.threshold(im, 127, 255, cv2.THRESH_BINARY_INV)  # Binary inversion
+    im = cv2.GaussianBlur(im, (5, 5), 0)  # Reduce noise
+    _, im = cv2.threshold(im, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)  # Adaptive thresholding
     return im
 
 def getOCR(im, coors):
@@ -36,13 +36,10 @@ def getOCR(im, coors):
     try:
         results = reader.readtext(im)
         ocr = ""
-
         for result in results:
-            if len(results) == 1:
+            if result[2] > conf:
                 ocr = result[1]
-            elif len(results) > 1 and len(result[1]) > 6 and result[2] > conf:
-                ocr = result[1]
-
+                break
         return str(ocr)
     except Exception as e:
         print(f"Error applying OCR: {e}")
