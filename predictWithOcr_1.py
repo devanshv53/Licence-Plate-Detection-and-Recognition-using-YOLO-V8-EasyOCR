@@ -8,8 +8,7 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
-from difflib import SequenceMatcher
-import re
+from difflib import SequenceMatcher  # For fuzzy matching
 
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
@@ -17,26 +16,22 @@ vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time']
 # Global set to track recorded plates (to avoid duplicates)
 recorded_plates = set()
 
-# Initialize EasyOCR reader
-reader = easyocr.Reader(['en'])
-
-def preprocess_image_for_ocr(im):
-    """Preprocess image for better OCR results."""
-    im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
-    im = cv2.GaussianBlur(im, (5, 5), 0)  # Reduce noise
-    _, im = cv2.threshold(im, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)  # Adaptive thresholding
-    return im
-
 def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
     im = im[y:h, x:w]
-    im = preprocess_image_for_ocr(im)
-    conf = 0.3  # Confidence threshold
+    conf = 0.2
 
+    gray = cv2.cvtColor(im, cv2.COLOR_RGB2GRAY)
     try:
-        results = reader.readtext(im)
-        ocr_results = [result[1] for result in results if result[2] > conf]
-        ocr = " ".join(ocr_results)
+        results = reader.readtext(gray)
+        ocr = ""
+
+        for result in results:
+            if len(results) == 1:
+                ocr = result[1]
+            elif len(results) > 1 and len(result[1]) > 6 and result[2] > conf:
+                ocr = result[1]
+
         return str(ocr)
     except Exception as e:
         print(f"Error applying OCR: {e}")
@@ -44,32 +39,11 @@ def getOCR(im, coors):
 
 def normalize_plate(plate):
     """Normalize the license plate by removing spaces, special characters, and converting to uppercase."""
-    plate = re.sub(r'\s+', '', plate)  # Remove all whitespaces
-    plate = re.sub(r'[^\w]', '', plate)  # Remove non-alphanumeric characters
+    plate = ''.join(e for e in plate if e.isalnum())  # Keep only alphanumeric characters
     return plate.upper()
 
-def correct_plate(plate):
-    """Correct common OCR errors."""
-    corrections = {
-        'O': '0',
-        'I': '1',
-        'L': '1',
-        'Z': '2',
-        'S': '5',
-        'Q': '0'
-    }
-    plate = normalize_plate(plate)
-    for incorrect, correct in corrections.items():
-        plate = plate.replace(incorrect, correct)
-    return plate
-
-def is_valid_plate(plate):
-    """Check if the plate is valid (length and format)."""
-    # Define the expected format (e.g., 7 alphanumeric characters)
-    return len(plate) >= 6 and len(plate) <= 10
-
 def is_similar_plate(plate1, plate2, threshold=0.8):
-    """Check if two plates are similar using a similarity threshold."""
+    """Check if two plates are similar using a similarity threshold (80% similarity by default)."""
     return SequenceMatcher(None, plate1, plate2).ratio() > threshold
 
 class DetectionPredictor(BasePredictor):
@@ -98,28 +72,33 @@ class DetectionPredictor(BasePredictor):
 
     def log_entry(self, plate):
         global vehicle_data, recorded_plates
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Change time format to include milliseconds and day-month-year
+        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
 
-        normalized_plate = correct_plate(plate)
-        if not is_valid_plate(normalized_plate):
-            return  # Skip invalid plates
-
-        # Check if any recorded plate is similar to the new plate
+        normalized_plate = normalize_plate(plate)
+        
+        # Check if the new plate is similar to an already recorded one with more than 80% similarity
         for rec_plate in recorded_plates:
             if is_similar_plate(rec_plate, normalized_plate):
-                return  # If similar plate exists, do not log the new one
+                return  # If a similar plate exists, do not log a new entry
 
-        # Log the plate if it's unique
+        # If no similar plate is found, log it as a new entry
         new_entry = pd.DataFrame({'License Plate': [normalized_plate], 'Entry Time': [current_time], 'Exit Time': [None]})
         vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
         recorded_plates.add(normalized_plate)
 
     def log_exit(self, plate):
         global vehicle_data
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        normalized_plate = correct_plate(plate)
-        if normalized_plate in vehicle_data['License Plate'].values:
-            vehicle_data.loc[vehicle_data['License Plate'] == normalized_plate, 'Exit Time'] = current_time
+        # Change time format to include milliseconds and day-month-year
+        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
+        
+        normalized_plate = normalize_plate(plate)
+        
+        # Check if the plate exists in the log, and mark its exit time
+        for index, row in vehicle_data.iterrows():
+            if is_similar_plate(row['License Plate'], normalized_plate):
+                if pd.isna(vehicle_data.at[index, 'Exit Time']):  # Only log exit if not already recorded
+                    vehicle_data.at[index, 'Exit Time'] = current_time
 
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
@@ -135,7 +114,7 @@ class DetectionPredictor(BasePredictor):
             frame = getattr(self.dataset, 'frame', 0)
 
         self.data_path = p
-        self.txt_path = str(self.save_dir / 'labels' / p.stem) + ('' if self.dataset.mode == 'image' else f'_{frame}')
+        self.txt_path = str(self.save_dir / 'labels' / p.stem) + ('' if this.dataset.mode == 'image' else f'_{frame}')
         log_string += '%gx%g ' % im.shape[2:]  # print string
         self.annotator = self.get_annotator(im0)
 
@@ -192,4 +171,5 @@ def predict(cfg):
 
 
 if __name__ == "__main__":
+    reader = easyocr.Reader(['en'])
     predict()
