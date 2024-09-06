@@ -43,7 +43,7 @@ def normalize_plate(plate):
     return plate.upper()
 
 def is_similar_plate(plate1, plate2, threshold=0.5):
-    """Check if two plates are similar using a similarity threshold (80% similarity by default)."""
+    """Check if two plates are similar using a similarity threshold (50% similarity by default)."""
     return SequenceMatcher(None, plate1, plate2).ratio() > threshold
 
 class DetectionPredictor(BasePredictor):
