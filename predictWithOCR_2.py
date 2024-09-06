@@ -22,7 +22,7 @@ reader = easyocr.Reader(['en'])
 
 # Common OCR misread character mapping
 char_mapping = {
-    '0': ['O', 'Q', 'D'],
+    '0': ['O', 'Q'],
     '1': ['I', 'L'],
     '2': ['Z'],
     '3': ['E'],
@@ -34,7 +34,7 @@ char_mapping = {
     '9': ['P'],
     'O': ['0', 'Q'],
     'Z': ['2'],
-    'Q': ['O', '0'],
+    'Q': ['0', 'O'],
     'E': ['3'],
     'A': ['4'],
     'S': ['5'],
@@ -91,6 +91,12 @@ def validate_plate(plate):
     """Validate license plate using regex pattern for Indian formats."""
     pattern = r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$'
     return re.match(pattern, plate) is not None
+
+def write_results_to_csv():
+    """Save the DataFrame to a CSV file, ensuring only valid plates are written."""
+    valid_data = vehicle_data[vehicle_data['License Plate'].apply(validate_plate)]
+    valid_data.to_csv('vehicle_entry_exit_log.csv', index=False)
+    print("Valid vehicle data saved to 'vehicle_entry_exit_log.csv'")
 
 class DetectionPredictor(BasePredictor):
 
@@ -189,6 +195,7 @@ class DetectionPredictor(BasePredictor):
                     corrected_ocr = correct_plate_chars(ocr)
                     if validate_plate(corrected_ocr):  # Validate using regex
                         label = corrected_ocr
+                 
                         # Log the entry only if it's a new plate
                         if corrected_ocr in vehicle_data['License Plate'].values:
                             self.log_exit(corrected_ocr)
