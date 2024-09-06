@@ -8,46 +8,70 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
+from difflib import SequenceMatcher
+import re
 
-# Initialize DataFrame and unique plates set
+# Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
-unique_plates = set()
 
-# Initialize EasyOCR Reader
+# Global set to track recorded plates (to avoid duplicates)
+recorded_plates = set()
+
+# Initialize EasyOCR reader
 reader = easyocr.Reader(['en'])
 
-def preprocess_image_for_ocr(image):
-    # Apply preprocessing steps for better OCR accuracy
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    _, thresholded = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    return thresholded
+def preprocess_image_for_ocr(im):
+    """Preprocess image for better OCR results."""
+    im = cv2.cvtColor(im, cv2.COLOR_BGR2GRAY)
+    im = cv2.medianBlur(im, 3)  # Reduce noise
+    _, im = cv2.threshold(im, 127, 255, cv2.THRESH_BINARY_INV)  # Binary inversion
+    return im
 
-def normalize_plate(plate):
-    # Normalize the plate text to handle common OCR errors
-    plate = plate.upper()
-    plate = plate.replace('O', '0').replace('I', '1').replace('L', '1')  # common OCR misinterpretations
-    return plate.strip()
-
-def getOCR(image, coors):
+def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
-    cropped_img = image[y:h, x:w]
-    preprocessed_img = preprocess_image_for_ocr(cropped_img)
-    
+    im = im[y:h, x:w]
+    im = preprocess_image_for_ocr(im)
+    conf = 0.3  # Increased confidence threshold
+
     try:
-        results = reader.readtext(preprocessed_img)
+        results = reader.readtext(im)
         ocr = ""
 
         for result in results:
             if len(results) == 1:
                 ocr = result[1]
-            elif len(results) > 1 and len(result[1]) > 6 and result[2] > 0.2:
+            elif len(results) > 1 and len(result[1]) > 6 and result[2] > conf:
                 ocr = result[1]
 
-        return normalize_plate(str(ocr))  # Normalize the OCR result
+        return str(ocr)
     except Exception as e:
         print(f"Error applying OCR: {e}")
         return ""
+
+def normalize_plate(plate):
+    """Normalize the license plate by removing spaces, special characters, and converting to uppercase."""
+    plate = re.sub(r'\s+', '', plate)  # Remove all whitespaces
+    plate = re.sub(r'[^\w]', '', plate)  # Remove non-alphanumeric characters
+    return plate.upper()
+
+def correct_plate(plate):
+    """Correct common OCR errors."""
+    corrections = {
+        'O': '0',
+        'I': '1',
+        'L': '1',
+        'Z': '2',
+        'S': '5',
+        'Q': '0'
+    }
+    plate = normalize_plate(plate)
+    for incorrect, correct in corrections.items():
+        plate = plate.replace(incorrect, correct)
+    return plate
+
+def is_similar_plate(plate1, plate2, threshold=0.8):
+    """Check if two plates are similar using a similarity threshold."""
+    return SequenceMatcher(None, plate1, plate2).ratio() > threshold
 
 class DetectionPredictor(BasePredictor):
 
@@ -74,18 +98,26 @@ class DetectionPredictor(BasePredictor):
         return preds
 
     def log_entry(self, plate):
-        global vehicle_data, unique_plates
+        global vehicle_data, recorded_plates
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate not in unique_plates:  # Avoid duplicates
-            unique_plates.add(plate)  # Add to set of unique plates
-            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
-            vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+
+        normalized_plate = correct_plate(plate)
+        # Check if any recorded plate is similar to the new plate
+        for rec_plate in recorded_plates:
+            if is_similar_plate(rec_plate, normalized_plate):
+                return  # If similar plate exists, do not log the new one
+
+        # Log the plate if it's unique
+        new_entry = pd.DataFrame({'License Plate': [normalized_plate], 'Entry Time': [current_time], 'Exit Time': [None]})
+        vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+        recorded_plates.add(normalized_plate)
 
     def log_exit(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate in vehicle_data['License Plate'].values:
-            vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
+        normalized_plate = correct_plate(plate)
+        if normalized_plate in vehicle_data['License Plate'].values:
+            vehicle_data.loc[vehicle_data['License Plate'] == normalized_plate, 'Exit Time'] = current_time
 
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
@@ -115,32 +147,31 @@ class DetectionPredictor(BasePredictor):
         # write
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         for *xyxy, conf, cls in reversed(det):
-            if conf >= self.args.conf:  # Check if confidence is above the threshold
-                if self.args.save_txt:  # Write to file
-                    xywh = (ops.xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                    line = (cls, *xywh, conf) if self.args.save_conf else (cls, *xywh)  # label format
-                    with open(f'{self.txt_path}.txt', 'a') as f:
-                        f.write(('%g ' * len(line)).rstrip() % line + '\n')
+            if self.args.save_txt:  # Write to file
+                xywh = (ops.xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                line = (cls, *xywh, conf) if self.args.save_conf else (cls, *xywh)  # label format
+                with open(f'{self.txt_path}.txt', 'a') as f:
+                    f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-                if self.args.save or self.args.save_crop or self.args.show:  # Add bbox to image
-                    c = int(cls)  # integer class
-                    label = None if self.args.hide_labels else (
-                        self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
-                    ocr = getOCR(im0, xyxy)
-                    if ocr != "":
-                        label = ocr
-                        # Log the entry and exit times
-                        if ocr in unique_plates:
-                            self.log_exit(ocr)
-                        else:
-                            self.log_entry(ocr)
-                    self.annotator.box_label(xyxy, label, color=colors(c, True))
-                if self.args.save_crop:
-                    imc = im0.copy()
-                    save_one_box(xyxy,
-                                 imc,
-                                 file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
-                                 BGR=True)
+            if self.args.save or self.args.save_crop or self.args.show:  # Add bbox to image
+                c = int(cls)  # integer class
+                label = None if self.args.hide_labels else (
+                    self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
+                ocr = getOCR(im0, xyxy)
+                if ocr != "":
+                    label = ocr
+                    # Log the entry only if it's a new plate
+                    if ocr in vehicle_data['License Plate'].values:
+                        self.log_exit(ocr)
+                    else:
+                        self.log_entry(ocr)
+                self.annotator.box_label(xyxy, label, color=colors(c, True))
+            if self.args.save_crop:
+                imc = im0.copy()
+                save_one_box(xyxy,
+                             imc,
+                             file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
+                             BGR=True)
 
         # Save the DataFrame to a CSV file after processing all frames
         vehicle_data.to_csv('vehicle_entry_exit_log.csv', index=False)
