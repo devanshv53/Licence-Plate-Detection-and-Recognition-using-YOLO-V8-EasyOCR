@@ -8,6 +8,7 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
+from difflib import SequenceMatcher  # For fuzzy matching
 
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
@@ -35,6 +36,15 @@ def getOCR(im, coors):
     except Exception as e:
         print(f"Error applying OCR: {e}")
         return ""
+
+def normalize_plate(plate):
+    """Normalize the license plate by removing spaces, special characters, and converting to uppercase."""
+    plate = ''.join(e for e in plate if e.isalnum())  # Keep only alphanumeric characters
+    return plate.upper()
+
+def is_similar_plate(plate1, plate2, threshold=0.8):
+    """Check if two plates are similar using a similarity threshold."""
+    return SequenceMatcher(None, plate1, plate2).ratio() > threshold
 
 class DetectionPredictor(BasePredictor):
 
@@ -64,17 +74,23 @@ class DetectionPredictor(BasePredictor):
         global vehicle_data, recorded_plates
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # Log only if the plate has not been recorded before (to avoid duplicates)
-        if plate not in recorded_plates:
-            new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
-            vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
-            recorded_plates.add(plate)  # Mark this plate as recorded
+        normalized_plate = normalize_plate(plate)
+        # Check if any recorded plate is similar to the new plate
+        for rec_plate in recorded_plates:
+            if is_similar_plate(rec_plate, normalized_plate):
+                return  # If similar plate exists, do not log the new one
+
+        # Log the plate if it's unique
+        new_entry = pd.DataFrame({'License Plate': [normalized_plate], 'Entry Time': [current_time], 'Exit Time': [None]})
+        vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+        recorded_plates.add(normalized_plate)
 
     def log_exit(self, plate):
         global vehicle_data
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate in vehicle_data['License Plate'].values:
-            vehicle_data.loc[vehicle_data['License Plate'] == plate, 'Exit Time'] = current_time
+        normalized_plate = normalize_plate(plate)
+        if normalized_plate in vehicle_data['License Plate'].values:
+            vehicle_data.loc[vehicle_data['License Plate'] == normalized_plate, 'Exit Time'] = current_time
 
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
