@@ -8,76 +8,34 @@ from ultralytics.yolo.engine.predictor import BasePredictor
 from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
-import re  # For pattern matching
 
-# Initialize DataFrame
+# Initialize DataFrame and unique plates set
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
-unique_plates = set()  # Set to track unique license plates
+unique_plates = set()
 
-def correct_ocr_mistakes(plate):
-    """Fix common OCR misreadings in license plates."""
-    corrections = {
-        'O': '0',  # Replace 'O' with '0'
-        'Q': '0',  # Replace 'Q' with '0'
-        'I': '1',  # Replace 'I' with '1'
-        'S': '5',  # Replace 'S' with '5'
-        'Z': '2',  # Replace 'Z' with '2'
-        'B': '8',  # Replace 'B' with '8'
-        'l': '1',  # Replace lowercase 'l' with '1'
-        '|': '1'   # Replace '|' with '1'
-    }
-    
-    for wrong_char, correct_char in corrections.items():
-        plate = plate.replace(wrong_char, correct_char)
-    return plate
-
-def validate_plate_format(plate):
-    """Validate the format of the detected license plate based on common patterns."""
-    # General format for Indian license plates: 2 letters, 1-2 digits, 1-2 letters, 1-4 digits
-    pattern = r"^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{1,4}$"
-    return bool(re.match(pattern, plate))
-
-def preprocess_image_for_ocr(im, coors):
-    """Preprocess the image to enhance OCR accuracy."""
-    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
-    cropped_im = im[y:h, x:w]
-
-    # Convert to grayscale
-    gray = cv2.cvtColor(cropped_im, cv2.COLOR_RGB2GRAY)
-    
-    # Apply Gaussian Blur to reduce noise
+def preprocess_image_for_ocr(image):
+    # Apply preprocessing steps for better OCR accuracy
+    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresholded = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return thresholded
+
+def getOCR(image, coors):
+    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
+    cropped_img = image[y:h, x:w]
+    preprocessed_img = preprocess_image_for_ocr(cropped_img)
     
-    # Apply thresholding for better contrast
-    _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-    # Resize to improve OCR readability
-    resized = cv2.resize(thresh, None, fx=2, fy=2, interpolation=cv2.INTER_LINEAR)
-
-    return resized
-
-def getOCR(im, coors):
-    """Extract text (license plate) from image using OCR."""
     try:
-        processed_im = preprocess_image_for_ocr(im, coors)
-        results = reader.readtext(processed_im)
-        conf = 0.2
+        results = reader.readtext(preprocessed_img)
         ocr = ""
 
         for result in results:
             if len(results) == 1:
                 ocr = result[1]
-            elif len(results) > 1 and len(result[1]) > 6 and result[2] > conf:
+            elif len(results) > 1 and len(result[1]) > 6 and result[2] > 0.2:
                 ocr = result[1]
 
-        # Normalize, correct mistakes, and validate the detected plate
-        normalized_plate = correct_ocr_mistakes(ocr)
-        corrected_plate = correct_ocr_mistakes(normalized_plate)
-
-        if validate_plate_format(corrected_plate):
-            return corrected_plate
-        else:
-            return ""
+        return str(ocr).strip()
     except Exception as e:
         print(f"Error applying OCR: {e}")
         return ""
@@ -145,34 +103,35 @@ class DetectionPredictor(BasePredictor):
         for c in det[:, 5].unique():
             n = (det[:, 5] == c).sum()  # detections per class
             log_string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
-
+        # write
         gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         for *xyxy, conf, cls in reversed(det):
-            if self.args.save_txt:  # Write to file
-                xywh = (ops.xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
-                line = (cls, *xywh, conf) if self.args.save_conf else (cls, *xywh)  # label format
-                with open(f'{self.txt_path}.txt', 'a') as f:
-                    f.write(('%g ' * len(line)).rstrip() % line + '\n')
+            if conf >= self.args.conf:  # Check if confidence is above the threshold
+                if self.args.save_txt:  # Write to file
+                    xywh = (ops.xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                    line = (cls, *xywh, conf) if self.args.save_conf else (cls, *xywh)  # label format
+                    with open(f'{self.txt_path}.txt', 'a') as f:
+                        f.write(('%g ' * len(line)).rstrip() % line + '\n')
 
-            if self.args.save or self.args.save_crop or self.args.show:  # Add bbox to image
-                c = int(cls)  # integer class
-                label = None if self.args.hide_labels else (
-                    self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
-                ocr = getOCR(im0, xyxy)
-                if ocr != "":
-                    label = ocr
-                    # Log the entry and exit times
-                    if ocr in unique_plates:
-                        self.log_exit(ocr)
-                    else:
-                        self.log_entry(ocr)
-                self.annotator.box_label(xyxy, label, color=colors(c, True))
-            if self.args.save_crop:
-                imc = im0.copy()
-                save_one_box(xyxy,
-                             imc,
-                             file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
-                             BGR=True)
+                if self.args.save or self.args.save_crop or self.args.show:  # Add bbox to image
+                    c = int(cls)  # integer class
+                    label = None if self.args.hide_labels else (
+                        self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
+                    ocr = getOCR(im0, xyxy)
+                    if ocr != "":
+                        label = ocr
+                        # Log the entry and exit times
+                        if ocr in unique_plates:
+                            self.log_exit(ocr)
+                        else:
+                            self.log_entry(ocr)
+                    self.annotator.box_label(xyxy, label, color=colors(c, True))
+                if self.args.save_crop:
+                    imc = im0.copy()
+                    save_one_box(xyxy,
+                                 imc,
+                                 file=self.save_dir / 'crops' / self.model.model.names[c] / f'{self.data_path.stem}.jpg',
+                                 BGR=True)
 
         # Save the DataFrame to a CSV file after processing all frames
         vehicle_data.to_csv('vehicle_entry_exit_log.csv', index=False)
