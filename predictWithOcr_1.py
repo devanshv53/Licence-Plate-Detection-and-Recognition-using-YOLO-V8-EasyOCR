@@ -31,15 +31,12 @@ def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
     im = im[y:h, x:w]
     im = preprocess_image_for_ocr(im)
-    conf = 0.3  # Increased confidence threshold
+    conf = 0.3  # Confidence threshold
 
     try:
         results = reader.readtext(im)
-        ocr = ""
-        for result in results:
-            if result[2] > conf:
-                ocr = result[1]
-                break
+        ocr_results = [result[1] for result in results if result[2] > conf]
+        ocr = " ".join(ocr_results)
         return str(ocr)
     except Exception as e:
         print(f"Error applying OCR: {e}")
@@ -65,6 +62,11 @@ def correct_plate(plate):
     for incorrect, correct in corrections.items():
         plate = plate.replace(incorrect, correct)
     return plate
+
+def is_valid_plate(plate):
+    """Check if the plate is valid (length and format)."""
+    # Define the expected format (e.g., 7 alphanumeric characters)
+    return len(plate) >= 6 and len(plate) <= 10
 
 def is_similar_plate(plate1, plate2, threshold=0.8):
     """Check if two plates are similar using a similarity threshold."""
@@ -99,6 +101,9 @@ class DetectionPredictor(BasePredictor):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         normalized_plate = correct_plate(plate)
+        if not is_valid_plate(normalized_plate):
+            return  # Skip invalid plates
+
         # Check if any recorded plate is similar to the new plate
         for rec_plate in recorded_plates:
             if is_similar_plate(rec_plate, normalized_plate):
