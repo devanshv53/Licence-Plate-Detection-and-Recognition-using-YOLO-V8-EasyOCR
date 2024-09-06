@@ -70,27 +70,29 @@ class DetectionPredictor(BasePredictor):
 
         return preds
 
-    def log_entry(self, plate):
-        global vehicle_data, recorded_plates
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  def log_entry(self, plate):
+    global vehicle_data, recorded_plates
+    # Change time format to include milliseconds and day-month-year
+    current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
 
-        normalized_plate = normalize_plate(plate)
-        # Check if any recorded plate is similar to the new plate
-        for rec_plate in recorded_plates:
-            if is_similar_plate(rec_plate, normalized_plate):
-                return  # If similar plate exists, do not log the new one
+    normalized_plate = normalize_plate(plate)
+    for rec_plate in recorded_plates:
+        if is_similar_plate(rec_plate, normalized_plate):
+            return  # If a similar plate exists, do not log the new one
 
-        # Log the plate if it's unique
-        new_entry = pd.DataFrame({'License Plate': [normalized_plate], 'Entry Time': [current_time], 'Exit Time': [None]})
-        vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
-        recorded_plates.add(normalized_plate)
+    new_entry = pd.DataFrame({'License Plate': [normalized_plate], 'Entry Time': [current_time], 'Exit Time': [None]})
+    vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+    recorded_plates.add(normalized_plate)
 
-    def log_exit(self, plate):
-        global vehicle_data
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        normalized_plate = normalize_plate(plate)
-        if normalized_plate in vehicle_data['License Plate'].values:
-            vehicle_data.loc[vehicle_data['License Plate'] == normalized_plate, 'Exit Time'] = current_time
+def log_exit(self, plate):
+    global vehicle_data
+    # Change time format to include milliseconds and day-month-year
+    current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
+    
+    normalized_plate = normalize_plate(plate)
+    if normalized_plate in vehicle_data['License Plate'].values:
+        vehicle_data.loc[vehicle_data['License Plate'] == normalized_plate, 'Exit Time'] = current_time
+
 
     def write_results(self, idx, preds, batch):
         p, im, im0 = batch
