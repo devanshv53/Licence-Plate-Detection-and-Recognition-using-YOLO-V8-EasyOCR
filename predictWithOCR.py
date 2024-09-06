@@ -12,6 +12,9 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 # Initialize DataFrame
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
 
+# Global set to track recorded plates (to avoid duplicates)
+recorded_plates = set()
+
 def getOCR(im, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
     im = im[y:h, x:w]
@@ -58,11 +61,14 @@ class DetectionPredictor(BasePredictor):
         return preds
 
     def log_entry(self, plate):
-        global vehicle_data
+        global vehicle_data, recorded_plates
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        if plate not in vehicle_data['License Plate'].values:
+
+        # Log only if the plate has not been recorded before (to avoid duplicates)
+        if plate not in recorded_plates:
             new_entry = pd.DataFrame({'License Plate': [plate], 'Entry Time': [current_time], 'Exit Time': [None]})
             vehicle_data = pd.concat([vehicle_data, new_entry], ignore_index=True)
+            recorded_plates.add(plate)  # Mark this plate as recorded
 
     def log_exit(self, plate):
         global vehicle_data
@@ -111,7 +117,7 @@ class DetectionPredictor(BasePredictor):
                 ocr = getOCR(im0, xyxy)
                 if ocr != "":
                     label = ocr
-                    # Log the entry and exit times
+                    # Log the entry only if it's a new plate
                     if ocr in vehicle_data['License Plate'].values:
                         self.log_exit(ocr)
                     else:
