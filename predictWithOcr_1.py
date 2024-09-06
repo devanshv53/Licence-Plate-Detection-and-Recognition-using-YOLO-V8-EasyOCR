@@ -191,4 +191,5 @@ def predict(cfg):
 
 
 if __name__ == "__main__":
-    reader = easyocr.Reader(['en
+    reader = easyocr.Reader(['en'])
+    predict()
