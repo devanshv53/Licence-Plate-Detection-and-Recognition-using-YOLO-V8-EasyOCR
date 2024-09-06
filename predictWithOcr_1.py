@@ -13,12 +13,21 @@ from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time'])
 unique_plates = set()
 
+# Initialize EasyOCR Reader
+reader = easyocr.Reader(['en'])
+
 def preprocess_image_for_ocr(image):
     # Apply preprocessing steps for better OCR accuracy
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     _, thresholded = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     return thresholded
+
+def normalize_plate(plate):
+    # Normalize the plate text to handle common OCR errors
+    plate = plate.upper()
+    plate = plate.replace('O', '0').replace('I', '1').replace('L', '1')  # common OCR misinterpretations
+    return plate.strip()
 
 def getOCR(image, coors):
     x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
@@ -35,7 +44,7 @@ def getOCR(image, coors):
             elif len(results) > 1 and len(result[1]) > 6 and result[2] > 0.2:
                 ocr = result[1]
 
-        return str(ocr).strip()
+        return normalize_plate(str(ocr))  # Normalize the OCR result
     except Exception as e:
         print(f"Error applying OCR: {e}")
         return ""
@@ -150,5 +159,4 @@ def predict(cfg):
 
 
 if __name__ == "__main__":
-    reader = easyocr.Reader(['en'])
     predict()
