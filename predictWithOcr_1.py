@@ -42,7 +42,7 @@ def normalize_plate(plate):
     plate = ''.join(e for e in plate if e.isalnum())  # Keep only alphanumeric characters
     return plate.upper()
 
-def is_similar_plate(plate1, plate2, threshold=0.8):
+def is_similar_plate(plate1, plate2, threshold=0.5):
     """Check if two plates are similar using a similarity threshold (80% similarity by default)."""
     return SequenceMatcher(None, plate1, plate2).ratio() > threshold
 
