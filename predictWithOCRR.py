@@ -5,7 +5,7 @@ import cv2
 import pandas as pd
 from datetime import datetime
 from ultralytics.yolo.engine.predictor import BasePredictor
-from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
+from ultralytics.yolo.utils import DEFAULT_CONFIG, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 from difflib import SequenceMatcher  # For fuzzy matching
@@ -17,7 +17,7 @@ vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time']
 recorded_plates = set()
 
 def getOCR(im, coors):
-    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])
+    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])  # Fixed syntax error
     im = im[y:h, x:w]
     conf = 0.2
 
@@ -72,8 +72,7 @@ class DetectionPredictor(BasePredictor):
 
     def log_entry(self, plate):
         global vehicle_data, recorded_plates
-        # Change time format to include milliseconds and day-month-year
-        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
+        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]  # Include milliseconds
 
         normalized_plate = normalize_plate(plate)
         for rec_plate in recorded_plates:
@@ -86,8 +85,7 @@ class DetectionPredictor(BasePredictor):
 
     def log_exit(self, plate):
         global vehicle_data
-        # Change time format to include milliseconds and day-month-year
-        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
+        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]  # Include milliseconds
         
         normalized_plate = normalize_plate(plate)
         if normalized_plate in vehicle_data['License Plate'].values:
@@ -152,63 +150,6 @@ class DetectionPredictor(BasePredictor):
         print("Vehicle data saved to 'vehicle_entry_exit_log.csv'")
 
         return log_string
-import cv2
-import torch
-import re
-import pandas as pd
-from datetime import datetime
-
-# Load models
-detection_model = torch.hub.load('ultralytics/yolov5', 'yolov5s')  # Load YOLOv5 model for detection
-recognition_model = ...  # Load your OCR model (EasyOCR, Tesseract, etc.)
-
-# Define license plate regex pattern
-plate_regex = re.compile(r'^[A-Z]{2}[0-9]{1,2}[A-Z]{1,2}[0-9]{4}$')
-
-# Initialize variables
-vehicle_logs = []
-entry_times = {}
-
-# Process video
-def process_video(video_path):
-    cap = cv2.VideoCapture(video_path)
-
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        results = detection_model(frame)  # Get detection results
-        detections = results.pandas().xyxy[0]  # Convert to pandas dataframe
-
-        for index, row in detections.iterrows():
-            label = row['name']
-            if label == 'license_plate':  # Filter for license plates
-                x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
-                cropped_img = frame[y1:y2, x1:x2]
-
-                # Run OCR on the cropped image
-                plate_text = recognition_model(cropped_img)
-
-                if plate_regex.match(plate_text):  # Validate the detected text
-                    current_time = datetime.now()
-                    if plate_text not in entry_times:  # First entry for this plate
-                        entry_times[plate_text] = current_time
-                        vehicle_logs.append([plate_text, current_time.strftime('%Y-%m-%d %H:%M:%S'), ''])  # Log entry time
-                    else:  # Existing entry, log exit time
-                        for log in vehicle_logs:
-                            if log[0] == plate_text and log[2] == '':
-                                log[2] = current_time.strftime('%Y-%m-%d %H:%M:%S')  # Update exit time
-                                break
-
-    cap.release()
-    save_to_csv(vehicle_logs)
-
-# Save logs to CSV
-def save_to_csv(vehicle_logs):
-    df = pd.DataFrame(vehicle_logs, columns=['License Plate', 'Entry Time', 'Exit Time'])
-    df.to_csv('vehicle_logs.csv', index=False)
-    print("Logs saved to vehicle_logs.csv")
 
 @hydra.main(version_base=None, config_path=str(DEFAULT_CONFIG.parent), config_name=DEFAULT_CONFIG.name)
 def predict(cfg):
@@ -223,5 +164,3 @@ def predict(cfg):
 if __name__ == "__main__":
     reader = easyocr.Reader(['en'])
     predict()
-
-
