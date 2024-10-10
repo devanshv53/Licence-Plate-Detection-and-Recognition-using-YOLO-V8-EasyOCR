@@ -5,7 +5,7 @@ import cv2
 import pandas as pd
 from datetime import datetime
 from ultralytics.yolo.engine.predictor import BasePredictor
-from ultralytics.yolo.utils import DEFAULT_CONFIG, ops
+from ultralytics.yolo.utils import DEFAULT_CONFIG, ROOT, ops
 from ultralytics.yolo.utils.checks import check_imgsz
 from ultralytics.yolo.utils.plotting import Annotator, colors, save_one_box
 from difflib import SequenceMatcher  # For fuzzy matching
@@ -17,7 +17,7 @@ vehicle_data = pd.DataFrame(columns=['License Plate', 'Entry Time', 'Exit Time']
 recorded_plates = set()
 
 def getOCR(im, coors):
-    x, y, w, h = int(coors[0]), int(coors[1]), int(coors[2]), int(coors[3])  # Fixed syntax error
+    x, y, w, h = map(int, coors)  # Map coordinates to integers
     im = im[y:h, x:w]
     conf = 0.2
 
@@ -41,6 +41,10 @@ def normalize_plate(plate):
     """Normalize the license plate by removing spaces, special characters, and converting to uppercase."""
     plate = ''.join(e for e in plate if e.isalnum())  # Keep only alphanumeric characters
     return plate.upper()
+
+def is_valid_plate_format(plate):
+    """Check if the plate format is valid (length, characters, etc.)."""
+    return len(plate) >= 6 and len(plate) <= 10  # Example length for license plates
 
 def is_similar_plate(plate1, plate2, threshold=0.8):
     """Check if two plates are similar using a similarity threshold."""
@@ -72,7 +76,8 @@ class DetectionPredictor(BasePredictor):
 
     def log_entry(self, plate):
         global vehicle_data, recorded_plates
-        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]  # Include milliseconds
+        # Change time format to include milliseconds and day-month-year
+        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
 
         normalized_plate = normalize_plate(plate)
         for rec_plate in recorded_plates:
@@ -85,7 +90,8 @@ class DetectionPredictor(BasePredictor):
 
     def log_exit(self, plate):
         global vehicle_data
-        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]  # Include milliseconds
+        # Change time format to include milliseconds and day-month-year
+        current_time = datetime.now().strftime("%d-%m-%Y %H:%M:%S.%f")[:-3]
         
         normalized_plate = normalize_plate(plate)
         if normalized_plate in vehicle_data['License Plate'].values:
@@ -113,6 +119,7 @@ class DetectionPredictor(BasePredictor):
         self.all_outputs.append(det)
         if len(det) == 0:
             return log_string
+        
         for c in det[:, 5].unique():
             n = (det[:, 5] == c).sum()  # detections per class
             log_string += f"{n} {self.model.names[int(c)]}{'s' * (n > 1)}, "
@@ -129,15 +136,19 @@ class DetectionPredictor(BasePredictor):
                 c = int(cls)  # integer class
                 label = None if self.args.hide_labels else (
                     self.model.names[c] if self.args.hide_conf else f'{self.model.names[c]} {conf:.2f}')
+                
                 ocr = getOCR(im0, xyxy)
-                if ocr != "":
-                    label = ocr
-                    # Log the entry only if it's a new plate
-                    if ocr in vehicle_data['License Plate'].values:
-                        self.log_exit(ocr)
-                    else:
-                        self.log_entry(ocr)
-                self.annotator.box_label(xyxy, label, color=colors(c, True))
+                if is_valid_plate_format(ocr):
+                    if ocr != "":
+                        # Log the entry only if it's a new plate
+                        if ocr in vehicle_data['License Plate'].values:
+                            self.log_exit(ocr)
+                        else:
+                            self.log_entry(ocr)
+                    self.annotator.box_label(xyxy, label, color=colors(c, True))
+                else:
+                    print(f"Detected non-plate text: {ocr}")  # Log or handle non-plate detections
+
             if self.args.save_crop:
                 imc = im0.copy()
                 save_one_box(xyxy,
