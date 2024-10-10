@@ -1,4 +1,4 @@
-import hydra 
+import hydra
 import torch
 import easyocr
 import cv2
@@ -156,12 +156,14 @@ class DetectionPredictor(BasePredictor):
 
 @hydra.main(version_base=None, config_path=str(DEFAULT_CONFIG.parent), config_name=DEFAULT_CONFIG.name)
 def predict(cfg):
-    cfg.model = "/content/Licence-Plate-Detection-and-Recognition-using-YOLO-V8-EasyOCR/best.pt"  # Set your model path
-    cfg.source = "/content/drive/My Drive/HackTU/Real_tiet_data.mp4"  # Set the path of the video
+    # Explicitly define and accept arguments for model and source
+    cfg.model = cfg.model or "yolov8n.pt"
+    cfg.source = cfg.source if cfg.source is not None else ROOT / "assets"
     cfg.imgsz = check_imgsz(cfg.imgsz, min_dim=2)  # check image size
+    
+    # Initialize predictor and run inference
     predictor = DetectionPredictor(cfg)
     predictor()
-
 
 if __name__ == "__main__":
     reader = easyocr.Reader(['en'])
