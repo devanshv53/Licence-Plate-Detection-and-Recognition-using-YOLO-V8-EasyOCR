@@ -1,103 +1,87 @@
-🚗 License Plate Detection & Recognition using YOLOv8 + EasyOCR
-📌 Overview
-This project detects vehicles’ license plates in real time and recognizes the text using YOLOv8 (for object detection) and EasyOCR (for optical character recognition).
+# 🚗 License Plate Detection & Recognition using YOLOv8 + EasyOCR
 
-It was built as a major project at Thapar Institute of Engineering & Technology (TIET) using a real-time dataset collected from our campus.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python)
+![YOLOv8](https://img.shields.io/badge/YOLO-v8-orange?logo=opencv)
+![EasyOCR](https://img.shields.io/badge/EasyOCR-OCR-green)
+![OpenCV](https://img.shields.io/badge/OpenCV-ComputerVision-red?logo=opencv)
+![Pandas](https://img.shields.io/badge/Pandas-Data%20Handling-purple?logo=pandas)
+![PyTorch](https://img.shields.io/badge/PyTorch-DeepLearning-EE4C2C?logo=pytorch)
 
-Detected license plates are logged into a CSV file with entry and exit timestamps, helping track vehicle movement efficiently.
+---
 
-🎯 Why this project?
-Smart Campus/Smart City Applications → automate vehicle logging at gates/parking.
+## 📌 Overview
+> This project detects vehicles’ license plates in **real time** and recognizes the text using **YOLOv8 (object detection)** and **EasyOCR (optical character recognition).**  
+>  
+> ✅ Built as a **major project at Thapar Institute of Engineering & Technology (TIET)** with a dataset collected from our campus.  
+> ✅ Detected plates are logged into a CSV file with **entry & exit timestamps**, helping track vehicle movement efficiently.  
 
-Real-time detection with YOLOv8.
+---
 
-Accurate OCR for Indian license plates using EasyOCR.
+## 🎯 Why this project?
+- 🚦 Smart Campus / Smart City Applications → automate vehicle logging at gates/parking.  
+- ⚡ Real-time detection with **YOLOv8**.  
+- 🔍 Accurate OCR for Indian license plates using **EasyOCR**.  
+- 📊 Data logging → exportable to CSV (or SQL databases).  
+- 🤖 Blend of **AI + Computer Vision + Data Engineering** showcasing practical ML deployment.  
 
-Data logging → exportable to CSV (or can be extended to SQL databases).
+---
 
-A blend of AI + Computer Vision + Data Engineering, showcasing practical ML deployment.
+## 🛠️ Tech Stack
+- **Python 3.10+**  
+- **YOLOv8 (Ultralytics)** – vehicle & license plate detection  
+- **EasyOCR** – text extraction from detected plates  
+- **OpenCV** – image preprocessing  
+- **Pandas** – data handling & CSV export  
+- **Hydra** – config management  
+- **PyTorch** – deep learning backend  
 
-🛠️ Tech Stack
-Python 3.10+
+---
 
-YOLOv8 (Ultralytics) – vehicle & license plate detection
-
-EasyOCR – text extraction from detected plates
-
-OpenCV – image preprocessing
-
-Pandas – data handling & CSV export
-
-Hydra – config management
-
-PyTorch – deep learning backend
-
-📂 Project Structure
+## 📂 Project Structure
+```bash
 📦 Licence-Plate-Detection-and-Recognition-using-YOLO-V8-EasyOCR
- ┣ 📜 predictWithOCR.py    # Main script (core pipeline)
- ┣ 📜 vehicle_entry_exit_log.csv    # Generated log file
- ┣ 📂 runs/                   # YOLOv8 inference outputs
- ┣ 📂 images/                 # Screenshots & demo outputs
- ┗ 📜 README.md               # This file
+ ┣ 📜 predictWithOCR.py          # Main script (core pipeline)
+ ┣ 📜 vehicle_entry_exit_log.csv # Generated log file
+ ┣ 📂 runs/                      # YOLOv8 inference outputs
+ ┣ 📂 images/                    # Screenshots & demo outputs
+ ┗ 📜 README.md                  # This file
 
-⚡ How It Works
-YOLOv8 detects vehicles & license plates in video frames/images.
+```
+-----
+## ⚡ How It Works
+1. YOLOv8 detects vehicles & license plates in frames/images.  
+2. EasyOCR extracts text from cropped plate regions.  
+3. Text normalization (uppercase, remove noise).  
+4. Entry/Exit events logged into CSV with timestamps.  
+5. Logs can be extended to SQL DBs for scalability.
 
-EasyOCR extracts text from cropped plate regions.
+---
+## 📸 Screenshots
+(Add your detection result images here)
 
-Text is normalized (removing noise, uppercase formatting).
+---
+## 📑 Output Example (CSV Log)
+| License Plate | Entry Time              | Exit Time              |
+|---------------|-------------------------|------------------------|
+| PB10AB1234    | 26-08-2025 10:23:45.123 | None                   |
+| CH01AA4321    | 26-08-2025 10:25:12.789 | 26-08-2025 11:02:33.456 |
 
-Entry/Exit events logged into a CSV file with timestamps.
+---
+## ▶️ Running the Project
+1. Install dependencies :
 
-Results can be extended to SQL databases for scalable storage.
+   pip install ultralytics easyocr opencv-python pandas hydra-core torch
 
-📸 Screenshots
-Detection in action:
-
-📑 Output Example (CSV Log)
-License Plate
-
-Entry Time
-
-Exit Time
-
-PB10AB1234
-
-26-08-2025 10:23:45.123
-
-None
-
-CH01AA4321
-
-26-08-2025 10:25:12.789
-
-26-08-2025 11:02:33.456
-
-▶️ Running the Project
-1. Install dependencies
-
-pip install ultralytics easyocr opencv-python pandas hydra-core torch
-
-2. Run detection
-
+3. Run detection
 python predictWithOCR.py source=path/to/video.mp4
 
-3. Check logs
+4. Check logs
+- vehicle_entry_exit_log.csv (log file)
+- runs/ (YOLO annotated outputs)
 
-CSV file generated: vehicle_entry_exit_log.csv
-
-YOLO annotated video/images saved in runs/
-
-🚀 Future Enhancements
-✅ Store logs in SQL database (SQLite/MySQL) instead of CSV.
-
-✅ Deploy as a Flask/FastAPI web app for gate monitoring.
-
-✅ Integrate with IoT devices (boom barriers, smart gates).
-
-✅ Add GUI dashboard to visualize vehicle activity.
-
-📜 Dataset
-Real-time dataset collected from TIET (Thapar Institute of Engineering & Technology) campus gates.
-
-Includes various lighting conditions, angles, and Indian number plate formats.
+----
+## 🚀 Future Enhancements
+- ✅ Store logs in SQL DB (SQLite/MySQL).  
+- ✅ Deploy as a Flask/FastAPI web app.  
+- ✅ Integrate with IoT devices (boom barriers).  
+- ✅ Add GUI dashboard for vehicle activity.  
