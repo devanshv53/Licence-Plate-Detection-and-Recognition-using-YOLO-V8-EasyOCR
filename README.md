@@ -12,7 +12,7 @@
 ## 📌 Overview
 > This project detects vehicles’ license plates in **real time** and recognizes the text using **YOLOv8 (object detection)** and **EasyOCR (optical character recognition).**  
 >  
-> ✅ Built as a **major project at Thapar Institute of Engineering & Technology (TIET)** with a dataset collected from our campus.  
+> ✅ Built as a **personal project at Thapar Institute of Engineering & Technology (TIET)** with a dataset collected from our campus.  
 > ✅ Detected plates are logged into a CSV file with **entry & exit timestamps**, helping track vehicle movement efficiently.  
 
 ---
