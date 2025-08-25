@@ -57,7 +57,9 @@
 
 ---
 ## 📸 Screenshots
-(Add your detection result images here)
+<img width="1470" height="956" alt="Screenshot 2025-08-26 at 1 45 29 AM" src="https://github.com/user-attachments/assets/ef54eb38-debb-4c07-82aa-fca287169b6d" />
+<img width="1470" height="956" alt="Screenshot 2025-08-26 at 1 46 27 AM" src="https://github.com/user-attachments/assets/708a9f1b-480d-4ee3-958b-43f3401cc602" />
+<img width="851" height="695" alt="Screenshot 2025-08-26 at 1 47 16 AM" src="https://github.com/user-attachments/assets/277dcce7-e098-4979-b3db-670ae87b2137" />
 
 ---
 ## 📑 Output Example (CSV Log)
