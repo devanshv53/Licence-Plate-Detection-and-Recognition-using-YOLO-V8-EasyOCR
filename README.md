@@ -74,10 +74,11 @@
 
    pip install ultralytics easyocr opencv-python pandas hydra-core torch
 
-3. Run detection
-python predictWithOCR.py source=path/to/video.mp4
+3. Run detection :
+ 
+   python predictWithOCR.py source=path/to/video.mp4
 
-4. Check logs
+5. Check logs
 - vehicle_entry_exit_log.csv (log file)
 - runs/ (YOLO annotated outputs)
 
